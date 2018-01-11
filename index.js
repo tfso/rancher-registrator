@@ -526,10 +526,10 @@ async function getServices() {
                 return false;
             })
             .map(service => {
-                var match = regex.exec(regex);
+                var match = regex.exec(service.ID);
 
                 return Object.assign(service, {
-                    rancherId: match[1]
+                    rancherId: match[1] || null
                 });
             })
     );
