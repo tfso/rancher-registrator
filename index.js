@@ -27,53 +27,68 @@ Array.prototype.flatten = function() {
 emitter.start();
 
 emitter.on("connect", async function() {
-    console.log("connected to docker api");
-    console.log("register existing containers");
+    try {
+        console.log("connected to docker api");
+        console.log("register existing containers");
 
-    let services = await getServices();
+        let services = await getServices();
 
-    deregisterServices(services.map(service => service.ID))
-        .then(getHostUUID)
-        .then(getHostContainers)
-        .then(registerContainers)
-        .then(function (value) {
-            console.log(value);
-        }).catch(function(err){
-            console.error("Startup; " + err);
-        })
+        console.log("services for node: " + services.length);
+
+        deregisterServices(services.map(service => service.ID))
+            .then(getHostUUID)
+            .then(getHostContainers)
+            .then(registerContainers)
+            .then(function (value) {
+                console.log(value);
+            }).catch(function(err){
+                console.error("Startup; " + err);
+            })
+    }
+    catch(err) {
+        console.error('Startup; ' + err);
+    }
 });
 
 emitter.on('start', async function(evt){
-
-    var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
-    console.log(new Date() + ' - container start ' + name + ' (image : '+evt.Actor.Attributes.image+')');
-    getMetaData(name)
-        .then(tryRegisterContainer)
-        .then(function (value) {
-            console.log(value);
-        }).catch(function(err){
-            console.error("Registering; " + err);
-        })
+    try {
+        var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
+        console.log(new Date() + ' - container start ' + name + ' (image : '+evt.Actor.Attributes.image+')');
+        getMetaData(name)
+            .then(tryRegisterContainer)
+            .then(function (value) {
+                console.log(value);
+            }).catch(function(err){
+                console.error("Registering; " + err);
+            })
+    }
+    catch(err) {
+        console.error('Registering; ' + err);
+    }
 });
 
 emitter.on('stop', async function(evt){
+    try {
+        var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
+        var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
+        console.log(new Date() + ' - container stop ' + name + ' (image : '+evt.Actor.Attributes.image+')');
 
-    var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
-    var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
-    console.log(new Date() + ' - container stop ' + name + ' (image : '+evt.Actor.Attributes.image+')');
+        //console.log(evt);
 
-    //console.log(evt);
+        let service = await getServiceByRancherId(uuid);
+        if( service == null)
+            return console.error(`Deregistrering; service with rancher id ${uuid} does not exist`);
 
-    let service = await getServiceByRancherId(uuid);
-    if( service == null)
-        return console.error(`Deregistrering; service with rancher id ${uuid} does not exist`);
-
-    deregisterServices(service.ID)
-        .then(function (value) {
-            console.log(value);
-        }).catch(function(err){
-            console.error("Deregistrering; " + err);
-        })
+        deregisterServices(service.ID)
+            .then(function (value) {
+                console.log(value);
+            }).catch(function(err){
+                console.error("Deregistrering; " + err);
+            })
+    } 
+    catch(ex) {
+        console.error('Deregistrering; ' + err);
+    }
 });
 
 function getHostContainers(hostUUID){
@@ -496,25 +511,28 @@ async function getServices() {
     let response = await request({
             "method": "GET",
             "url": _consulAgent + "/v1/agent/services",
+            resolveWithFullResponse: true
         }),
         body = JSON.parse(response.body);
 
     var regex = new RegExp('^([a-zA-Z0-9][a-zA-Z0-9_.-]+):[0-9]+(?::udp)?$');      
 
-    return Object.values(body)
-        .filter(service => {
-            if(regex.test(service.ID))
-                return true;
+    return Array.from(
+        Object.values(body)
+            .filter(service => {
+                if(regex.test(service.ID))
+                    return true;
 
-            return false;
-        })
-        .map(service => {
-            var match = regex.exec(regex);
+                return false;
+            })
+            .map(service => {
+                var match = regex.exec(regex);
 
-            return Object.assign(service, {
-                rancherId: match[1]
-            });
-        })
+                return Object.assign(service, {
+                    rancherId: match[1]
+                });
+            })
+    );
 }
 
 async function getServiceByRancherId(uuid){
