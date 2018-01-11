@@ -14,18 +14,6 @@ const _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
 
 var _hostUuid = null;
 
-Array.prototype.flatten = function() {
-    var ret = [];
-    for(var i = 0; i < this.length; i++) {
-        if(Array.isArray(this[i])) {
-            ret = ret.concat(this[i].flatten());
-        } else {
-            ret.push(this[i]);
-        }
-    }
-    return ret;
-};
-
 emitter.start();
 
 emitter.on("connect", async function() {
@@ -36,7 +24,7 @@ emitter.on("connect", async function() {
         let services = await getServices(),
             hostUuid = await getHostUUID();
 
-        console.log('host uuid' + hostUuid);
+        console.log('host uuid: ' + hostUuid);
         console.log("services for node: " + services.length);
 
         await deregisterServices(services.map(service => service.ID));
@@ -51,6 +39,8 @@ emitter.on("connect", async function() {
     }
     catch(err) {
         console.error('Startup; ' + err);
+
+        process.exit(-1);
     }
 });
 
@@ -61,7 +51,7 @@ emitter.on('start', async function(evt){
         getMetaData(name)
             .then(tryRegisterContainer)
             .then(function (value) {
-                console.log(value);
+                if(value) console.log(value);
             }).catch(function(err){
                 console.error("Registering; " + err);
             })
@@ -138,7 +128,7 @@ function registerContainers(input) {
     
     return Promise.all(promises)
         .then(value => {
-            return Promise.resolve(value.flatten().filter(Boolean));
+            return [].concat.apply([], value);
         });
 }
 
@@ -158,6 +148,8 @@ function tryRegisterContainer(input){
         .then(registerService)
         .catch(function(err){
             console.log(err);
+
+            return [];
         })
 }
 
@@ -535,8 +527,8 @@ async function getServices(hostUuid) {
 }
 
 async function getServiceByRancherId(uuid){
-    let services = await getServices()
-        .filter(service => service.rancherId == uuid);
+    let services = (await getServices())
+        .filter(service => service.meta.id == uuid);
 
     if(services.length == 1)
         return services[0];
@@ -545,7 +537,7 @@ async function getServiceByRancherId(uuid){
 }
 
 async function getServiceById(id){
-    let services = await getServices()
+    let services = (await getServices())
         .filter(service => service.ID == id);
 
     if(services.length == 1)
