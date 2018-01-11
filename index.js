@@ -1,15 +1,16 @@
-var async = require('async');
-var request = require('request');
-var DockerEvents = require('docker-events'),
-    Dockerode = require('dockerode')
+const 
+    async = require('async'),
+    request = require('request-promise-native'),
+    DockerEvents = require('docker-events'),
+    Dockerode = require('dockerode'),
+    jsonQuery = require('json-query');
+
 var emitter = new DockerEvents({
-    docker: new Dockerode({socketPath: '/var/run/docker.sock'}),
-});
-var jsonQuery = require('json-query')
+        docker: new Dockerode({socketPath: '/var/run/docker.sock'}),
+    });
 
-var _prefix = process.env.SVC_PREFIX || "";
-var _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
-
+const _prefix = process.env.SVC_PREFIX || "";
+const _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
 
 Array.prototype.flatten = function() {
     var ret = [];
@@ -23,26 +24,26 @@ Array.prototype.flatten = function() {
     return ret;
 };
 
-
 emitter.start();
 
-emitter.on("connect", function() {
+emitter.on("connect", async function() {
     console.log("connected to docker api");
     console.log("register existing containers");
 
-    getServices()
-        .then(deregisterServices)
+    let services = await getServices();
+
+    deregisterServices(services.map(service => service.ID))
         .then(getHostUUID)
         .then(getHostContainers)
         .then(registerContainers)
         .then(function (value) {
             console.log(value);
         }).catch(function(err){
-            console.log("startup ERROR : " + err);
+            console.error("Startup; " + err);
         })
 });
 
-emitter.on('start', function(evt){
+emitter.on('start', async function(evt){
 
     var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
     console.log(new Date() + ' - container start ' + name + ' (image : '+evt.Actor.Attributes.image+')');
@@ -51,11 +52,11 @@ emitter.on('start', function(evt){
         .then(function (value) {
             console.log(value);
         }).catch(function(err){
-            console.log("Registering ERROR : " + err);
+            console.error("Registering; " + err);
         })
 });
 
-emitter.on('stop', function(evt){
+emitter.on('stop', async function(evt){
 
     var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
     var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
@@ -63,12 +64,15 @@ emitter.on('stop', function(evt){
 
     //console.log(evt);
 
-    getServices(uuid)
-        .then(deregisterServices)
+    let service = await getServiceByRancherId(uuid);
+    if( service == null)
+        return console.error(`Deregistrering; service with rancher id ${uuid} does not exist`);
+
+    deregisterServices(service.ID)
         .then(function (value) {
             console.log(value);
         }).catch(function(err){
-            console.log("Deregistering ERROR : " + err);
+            console.error("Deregistrering; " + err);
         })
 });
 
@@ -488,36 +492,47 @@ function doDeregister(uuid,callback){
     });
 }
 
-function getServices(uuid){
-    return new Promise(
-        function(resolve,reject){
-            var query = {
-                "method":"GET",
-                "url": _consulAgent + "/v1/agent/services",
-            };
+async function getServices() {
+    let response = await request({
+            "method": "GET",
+            "url": _consulAgent + "/v1/agent/services",
+        }),
+        body = JSON.parse(response.body);
 
-            request(query,function (error, response, body) {
-                if (error) {
-                    reject(error)
-                }
-                else{
-                    var guid = '([a-zA-Z0-9][a-zA-Z0-9_.-]+)';
-                    var re = new RegExp('^' + (uuid || guid) + ':[0-9]+(?::udp)?$');
+    var regex = new RegExp('^([a-zA-Z0-9][a-zA-Z0-9_.-]+):[0-9]+(?::udp)?$');      
 
-                    var output = JSON.parse(body);
+    return Object.values(body)
+        .filter(service => {
+            if(regex.test(service.ID))
+                return true;
 
-                    var allServiceIDs = Object.keys(output);
-                    var serviceIDs = [];
+            return false;
+        })
+        .map(service => {
+            var match = regex.exec(regex);
 
-                    // figure out if these are services we registered
-                    for (let id of allServiceIDs) {
-                        if (re.test(id)) {
-                            serviceIDs.push(id);
-                        }
-                    }
-                    resolve(serviceIDs);
-                }
+            return Object.assign(service, {
+                rancherId: match[1]
             });
-        }
-    )
+        })
+}
+
+async function getServiceByRancherId(uuid){
+    let services = await getServices()
+        .filter(service => service.rancherId == uuid);
+
+    if(services.length == 1)
+        return services[0];
+
+    return null;
+}
+
+async function getServiceById(id){
+    let services = await getServices()
+        .filter(service => service.ID == id);
+
+    if(services.length == 1)
+        return services[0];
+
+    return null;
 }
