@@ -11,7 +11,8 @@ var emitter = new DockerEvents({
 
 const _prefix = process.env.SVC_PREFIX || "";
 const _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
-const _hostUuid;
+
+var _hostUuid = null;
 
 Array.prototype.flatten = function() {
     var ret = [];
@@ -89,7 +90,7 @@ emitter.on('stop', async function(evt){
                 console.error("Deregistrering; " + err);
             })
     }
-    catch(ex) {
+    catch(err) {
         console.error('Deregistrering; ' + err);
     }
 });
