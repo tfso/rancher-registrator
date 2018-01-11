@@ -449,7 +449,7 @@ async function deregisterServices(uniqueIDs){
     );
 
     return uniqueIDs.map((id, index) => {
-        return `${id} ${results[index]} ? 'deregistered' : 'failed'}`;
+        return `${id} ${results[index] ? 'deregistered' : 'failed'}`;
     })
 }
 
