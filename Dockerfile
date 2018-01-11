@@ -7,4 +7,4 @@ COPY package.json .
 
 RUN npm install --production
 
-ENTRYPOINT ["npm start"]
+CMD ["node", "index.js"]
