@@ -11,6 +11,7 @@ var emitter = new DockerEvents({
 
 const _prefix = process.env.SVC_PREFIX || "";
 const _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
+const _hostUuid;
 
 Array.prototype.flatten = function() {
     var ret = [];
@@ -31,13 +32,15 @@ emitter.on("connect", async function() {
         console.log("connected to docker api");
         console.log("register existing containers");
 
-        let services = await getServices();
+        let services = await getServices(),
+            hostUuid = await getHostUUID();
 
+        console.log('host uuid' + hostUuid);
         console.log("services for node: " + services.length);
 
-        deregisterServices(services.map(service => service.ID))
-            .then(getHostUUID)
-            .then(getHostContainers)
+        await deregisterServices(services.map(service => service.ID));
+
+        getHostContainers(hostUuid)
             .then(registerContainers)
             .then(function (value) {
                 console.log(value);
@@ -85,7 +88,7 @@ emitter.on('stop', async function(evt){
             }).catch(function(err){
                 console.error("Deregistrering; " + err);
             })
-    } 
+    }
     catch(ex) {
         console.error('Deregistrering; ' + err);
     }
@@ -182,28 +185,21 @@ function getMetaData(servicename){
     )
 }
 
-function getHostUUID(){
-    return new Promise(
-        function(resolve,reject){
-            //console.log("getAgentIP: " + input.servicename);
+async function getHostUUID() {
+    if(_hostUuid)
+        return _hostUuid;
 
-            var query = {
-                "method":"GET",
-                "url": "http://rancher-metadata/latest/self/host",
-                "headers":{
-                    "accept" : "application/json"
-                }
-            }
+    let response = await request({
+            method: "GET",
+            url: "http://rancher-metadata/latest/self/host",
+            headers:{
+                "accept" : "application/json"
+            },
+            resolveWithFullResponse: true
+        }),
+        body = JSON.parse(response.body);
 
-            request(query,function (error, response, body) {
-                if (error) {
-                    reject("getHostUUID error : " + error);
-                }
-
-                resolve(JSON.parse(body).uuid);
-            })
-        }
-    )
+    return _hostUuid = body.uuid;
 }
 
 function getAgentIP(input){
@@ -386,128 +382,125 @@ function checkForHealthCheckLabel(input){
     )
 }
 
-function registerService(input){
-    return new Promise(
-        function(resolve,reject){
-            console.log("registerService: " + input.servicename);
+async function registerService(input) {
+    console.log("registerService: " + input.servicename);
 
-            var serviceDefs = [];
-            input.metadata.portMapping.forEach(function(pm) {
+    var serviceDefs = [],
+        hostUuid = await getHostUUID();
 
-                var id = input.metadata.uuid + ":" + pm.publicPort;
-                var name = _prefix + input.metadata.service_name;
-                var hasPortName = false;
-                if (input.metadata.port_service_names[pm.privatePort] != undefined) {
-                  name = _prefix + input.metadata.port_service_names[pm.privatePort]
-                  hasPortName = true;
-                }
-                if (pm.transport == "udp")
-                    id += ":udp";
-
-                if (input.metadata.portMapping.length > 1 && !hasPortName)
-                    name += "-" + pm.privatePort;
-
-                var definition = {
-                    "ID": id, //<uuid>:<exposed-port>[:udp if udp]
-                    "Name": name,
-                    "Address": pm.address,
-                    "Port": parseInt(pm.publicPort)
-                };
-
-                if (input.metadata.service_tags) {
-                    definition.Tags = input.metadata.service_tags;
-                }
-
-                if(pm.Check){
-                    definition.Check = pm.Check;
-                }
-
-                serviceDefs.push(definition)
-
-            })
-
-            async.map(serviceDefs,doRegister,function(err,results){
-                if(err)
-                    console.log(err);
-                resolve(results)
-            });
+    input.metadata.portMapping.forEach(function(pm) {
+        var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
+        var name = _prefix + input.metadata.service_name;
+        var hasPortName = false;
+        if (input.metadata.port_service_names[pm.privatePort] != undefined) {
+            name = _prefix + input.metadata.port_service_names[pm.privatePort]
+            hasPortName = true;
         }
-    )
-}
+        if (pm.transport == "udp")
+            id += ":udp";
 
-function deregisterService(input){
-    return new Promise(
-        function(resolve,reject){
+        if (input.metadata.portMapping.length > 1 && !hasPortName)
+            name += "-" + pm.privatePort;
 
-            var uniqueIDs = [];
+        var definition = {
+            "ID": id, //<hostuuid>:<uuid>:<exposed-port>[:udp if udp]
+            "Name": name,
+            "Address": pm.address,
+            "Port": parseInt(pm.publicPort)
+        };
 
-            input.metadata.portMapping.forEach(function(pm){
-                var id = input.metadata.uuid + ":" + pm.publicPort;
-
-                if(pm.transport == "udp")
-                    id += ":udp";
-                uniqueIDs.push(id)
-            });
-
-            async.map(uniqueIDs,doDeregister,function(err,results){
-                if(err)
-                    console.log(err);
-                resolve(results)
-            });
+        if (input.metadata.service_tags) {
+            definition.Tags = input.metadata.service_tags;
         }
-    )
-}
 
-function deregisterServices(uniqueIDs){
-    return new Promise(
-        function(resolve,reject){
-
-            async.map(uniqueIDs,doDeregister,function(err,results){
-                if(err)
-                    console.log(err);
-                resolve(results)
-            });
+        if(pm.Check){
+            definition.Check = pm.Check;
         }
-    )
-}
 
-function doRegister(serviceDef,callback){
-    var query = {
-        "method":"PUT",
-        "url": _consulAgent + "/v1/agent/service/register",
-        "headers":{
-            "Content-Type" : "application/json"
-        },
-        "json":serviceDef
-    };
+        serviceDefs.push(definition)
 
-    request(query,function (error, response, body) {
-        if (error) {
-            callback("registerService error : " + error,null);
-        }
-        else{
-            callback(null,serviceDef.ID + " registered")
-        }
+    })
+
+    let results = await Promise.all(
+        serviceDefs.map(doRegister)
+    );
+
+    return serviceDefs.map((serviceDef, index) => {
+        return `${serviceDef.ID} ${results[index] ? 'registered' : 'failed'}`;
     });
 }
 
-function doDeregister(uuid,callback){
-    var query = {
-        "method":"GET",
-        "url": _consulAgent + "/v1/agent/service/deregister/" + uuid,
-    };
+async function deregisterService(input){    
+    var uniqueIDs = [],
+        hostUuid = await getHostUUID();
 
-    request(query,function (error, response, body) {
-        if (error) {
-            callback(error,null)
-        }
-        else{
-            callback(null,uuid +" deregistered");
-        }
+    input.metadata.portMapping.forEach(function(pm){
+        var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
+
+        if(pm.transport == "udp")
+            id += ":udp";
+
+        uniqueIDs.push(id)
     });
+
+    return deregisterServices(uniqueIDs);
 }
 
-async function getServices() {
+async function deregisterServices(uniqueIDs){
+    uniqueIDs = []
+        .concat(uniqueIDs)
+        .filter(id => id && id.length > 32);
+
+    let results = await Promise.all(
+        uniqueIDs.map(doDeregister)
+    );
+
+    return uniqueIDs.map((id, index) => {
+        return `${id} ${results[index]} ? 'deregistered' : 'failed'}`;
+    })
+}
+
+async function doRegister(serviceDef) {
+    try {
+        let response = await request({
+            method:"PUT",
+            url: _consulAgent + "/v1/agent/service/register",
+            headers:{
+                "Content-Type" : "application/json"
+            },
+            json:serviceDef,
+            resolveWithFullResponse: true
+        }),
+        body = JSON.parse(response.body || null);
+
+        return true;
+    }
+    catch(err) {
+        console.log("registerService error : " + err);
+
+        return false;
+    }
+}
+
+async function doDeregister(uuid) {
+    try {
+        let response = await request({
+                method:"GET",
+                url: _consulAgent + "/v1/agent/service/deregister/" + uuid,
+                resolveWithFullResponse: true
+            }),
+            body = JSON.parse(response.body || null);
+
+        return true;
+    }
+    catch(err) {
+        console.log('deregisterService error : ' + err);
+
+        return false;
+    }
+}
+
+async function getServices(hostUuid) {
     let response = await request({
             "method": "GET",
             "url": _consulAgent + "/v1/agent/services",
@@ -515,24 +508,29 @@ async function getServices() {
         }),
         body = JSON.parse(response.body);
 
-    var regex = new RegExp('^([a-zA-Z0-9][a-zA-Z0-9_.-]+):[0-9]+(?::udp)?$');      
+    var regex = new RegExp('^([a-zA-Z0-9][a-zA-Z0-9_.-]+):([a-zA-Z0-9][a-zA-Z0-9_.-]+):[0-9]+(?::udp)?$');      
 
-    return Array.from(
-        Object.values(body)
-            .filter(service => {
-                if(regex.test(service.ID))
-                    return true;
+    if(!hostUuid)
+        hostUuid = await getHostUUID();
 
-                return false;
-            })
-            .map(service => {
-                var match = regex.exec(service.ID);
+    return Object.values(body)
+        .map(service => {
+            var match = regex.exec(service.ID),
+                meta = {
+                    hostUuid: null,
+                    id: null
+                }
+            
+            if(match) {
+                meta.hostUuid = match[1];
+                meta.id = match[2];
+            }
 
-                return Object.assign(service, {
-                    rancherId: match[1] || null
-                });
-            })
-    );
+            return Object.assign(service, { meta });
+        })
+        .filter(service => {
+            return service.meta && service.meta.hostUuid == hostUuid;
+        });
 }
 
 async function getServiceByRancherId(uuid){
