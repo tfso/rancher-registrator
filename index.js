@@ -275,7 +275,7 @@ function checkForServiceTagsLabel(input){
         function(resolve,reject){
             if(input.metadata.labels.SERVICE_TAGS){
                 console.log("Service_Tags found");
-                input.metadata.service_tags = input.metadata.labels.SERVICE_TAGS.split(",");
+                input.metadata.service_tags = input.metadata.labels.SERVICE_TAGS.split(",").map(tag => (tag || "").trim()).filter(tag => tag.length > 0);
             }
             port_names = {};
             for (var key in input.metadata.labels) {
