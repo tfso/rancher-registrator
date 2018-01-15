@@ -11,7 +11,10 @@ var emitter = new DockerEvents({
 
 const _prefix = process.env.SVC_PREFIX || "";
 const _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
-const _baseTags = (process.env.SERVICE_TAGS || '').split(',').map(tag => tag.trim());
+const _baseTags = (process.env.SERVICE_TAGS || '')
+    .split(',')
+    .map(tag => (tag || '').trim())
+    .filter(tag => tag.length > 0);
 
 var _hostUuid = null;
 
@@ -274,9 +277,12 @@ function checkForServiceNameLabel(input){
 function checkForServiceTagsLabel(input){
     return new Promise(
         function(resolve,reject){
-            if(input.metadata.labels.SERVICE_TAGS){
+            if(input.metadata.labels.SERVICE_TAGS) {
                 console.log("Service_Tags found");
-                input.metadata.service_tags = input.metadata.labels.SERVICE_TAGS.split(",").map(tag => (tag || "").trim()).filter(tag => tag.length > 0);
+                input.metadata.service_tags = (input.metadata.labels.SERVICE_TAGS || '')
+                    .split(',')
+                    .map(tag => (tag || "").trim())
+                    .filter(tag => tag.length > 0);
             }
             port_names = {};
             for (var key in input.metadata.labels) {
@@ -385,6 +391,8 @@ async function registerService(input) {
     input.metadata.portMapping.forEach(function(pm) {
         var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
         var name = _prefix + input.metadata.service_name;
+        var tags = [].concat(input.metadata.service_tags || [], _baseTags);
+
         var hasPortName = false;
         if (input.metadata.port_service_names[pm.privatePort] != undefined) {
             name = _prefix + input.metadata.port_service_names[pm.privatePort]
@@ -403,12 +411,10 @@ async function registerService(input) {
             "Port": parseInt(pm.publicPort)
         };
 
-        if (input.metadata.service_tags) {
-            definition.Tags = Array.from(
-                new Set([].concat(input.metadata.service_tags, _baseTags)).values() // unique list
-            );
-        }
-
+        definition.Tags = Array.from(
+            new Set(tags).values() // unique list
+        );
+        
         if(pm.Check){
             definition.Check = pm.Check;
         }
