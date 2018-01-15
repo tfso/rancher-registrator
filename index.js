@@ -11,6 +11,7 @@ var emitter = new DockerEvents({
 
 const _prefix = process.env.SVC_PREFIX || "";
 const _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
+const _baseTags = (process.env.SERVICE_TAGS || '').split(',').map(tag => tag.trim());
 
 var _hostUuid = null;
 
@@ -403,7 +404,9 @@ async function registerService(input) {
         };
 
         if (input.metadata.service_tags) {
-            definition.Tags = input.metadata.service_tags;
+            definition.Tags = Array.from(
+                new Set([].concat(input.metadata.service_tags, _baseTags)).values() // unique list
+            );
         }
 
         if(pm.Check){
