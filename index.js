@@ -67,7 +67,27 @@ emitter.on('start', async function(evt){
 });
 
 emitter.on('destroy', async (evt) => {
-    console.log('destroy: ' + JSON.stringify(evt));
+    try {
+        var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
+        var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
+        console.log(new Date() + ' - container stop ' + name + ' (image : '+evt.Actor.Attributes.image+')');
+
+        //console.log(evt);
+
+        let service = await getServiceByRancherId(uuid);
+        if( service == null)
+            return console.error(`Deregistrering; service with rancher id ${uuid} does not exist`);
+
+        deregisterServices(service.ID)
+            .then(function (value) {
+                console.log(value);
+            }).catch(function(err){
+                console.error("Deregistrering; " + err);
+            })
+    }
+    catch(err) {
+        console.error('Deregistrering; ' + err);
+    }
 });
 
 emitter.on('restart', async (evt) => {
