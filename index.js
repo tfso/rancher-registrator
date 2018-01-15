@@ -53,6 +53,9 @@ emitter.on('start', async function(evt){
     try {
         var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
         console.log(new Date() + ' - container start ' + name + ' (image : '+evt.Actor.Attributes.image+')');
+
+        console.log('start: ' + JSON.stringify(evt));
+
         getMetaData(name)
             .then(tryRegisterContainer)
             .then(function (value) {
@@ -70,9 +73,9 @@ emitter.on('destroy', async (evt) => {
     try {
         var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
         var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
-        console.log(new Date() + ' - container stop ' + name + ' (image : '+evt.Actor.Attributes.image+')');
+        console.log(new Date() + ' - container destroy ' + name + ' (image : '+evt.Actor.Attributes.image+')');
 
-        //console.log(evt);
+        console.log('stop: ' + JSON.stringify(evt));
 
         let service = await getServiceByRancherId(uuid);
         if( service == null)
@@ -112,7 +115,7 @@ emitter.on('stop', async function(evt){
         var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
         console.log(new Date() + ' - container stop ' + name + ' (image : '+evt.Actor.Attributes.image+')');
 
-        //console.log(evt);
+        console.log('stop: ' + JSON.stringify(evt));
 
         let service = await getServiceByRancherId(uuid);
         if( service == null)
