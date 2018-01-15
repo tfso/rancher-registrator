@@ -66,6 +66,26 @@ emitter.on('start', async function(evt){
     }
 });
 
+emitter.on('destroy', async (evt) => {
+    console.log('destroy: ' + JSON.stringify(evt));
+});
+
+emitter.on('restart', async (evt) => {
+    console.log('restart: ' + JSON.stringify(evt));
+});
+
+emitter.on('pause', async (evt) => {
+    console.log('pause: ' + JSON.stringify(evt));
+})
+
+emitter.on('unpause', async (evt) => {
+    console.log('unpause: ' + JSON.stringify(evt));
+})
+
+emitter.on('health_status', async (evt) => {
+    console.log('health: ' + JSON.stringify(evt));
+})
+
 emitter.on('stop', async function(evt){
     try {
         var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
