@@ -15,6 +15,7 @@ const _baseTags = (process.env.SERVICE_TAGS || '')
     .split(',')
     .map(tag => (tag || '').trim())
     .filter(tag => tag.length > 0);
+const _ignoreUnnamedServices = Boolean(process.env.SERVICE_IGNORE_NAMELESS)
 
 var _hostUuid = null;
 
@@ -389,6 +390,9 @@ async function registerService(input) {
         hostUuid = await getHostUUID();
 
     input.metadata.portMapping.forEach(function(pm) {
+        if(_ignoreUnnamedServices === true && (input.metadata.labels.SERVICE_NAME || input.metadata.port_service_names[pm.privatePort]) )
+            return console.log('Service ignored as Service_Name is not defined ' + input.name);; 
+
         var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
         var name = _prefix + input.metadata.service_name;
         var tags = [].concat(input.metadata.service_tags || [], _baseTags);
@@ -414,7 +418,7 @@ async function registerService(input) {
         definition.Tags = Array.from(
             new Set(tags).values() // unique list
         );
-        
+
         if(pm.Check){
             definition.Check = pm.Check;
         }

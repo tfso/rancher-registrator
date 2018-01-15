@@ -30,6 +30,8 @@ You can set 2 environment variables :
 
  - SVC_PREFIX is used to prefix the service name into consul (for testing purpose)
  - LOCAL_CONSUL_AGENT defaults to "http://localhost:8500" and it can be changed if necessary.
+ - SERVICE_TAGS base tags to add for all services
+ - SERVICE_IGNORE_NAMELESS ignore all containers that isn't labeled with a SERVICE_NAME
 
 ### Labels
 
