@@ -390,8 +390,8 @@ async function registerService(input) {
         hostUuid = await getHostUUID();
 
     input.metadata.portMapping.forEach(function(pm) {
-        if(_ignoreUnnamedServices === true && (input.metadata.labels.SERVICE_NAME || input.metadata.port_service_names[pm.privatePort]) )
-            return console.log('Service ignored as Service_Name is not defined ' + input.name);; 
+        if(_ignoreUnnamedServices === true && (input.metadata.labels.SERVICE_NAME || input.metadata.port_service_names[pm.privatePort]) == false)
+            return console.log('Service ignored as Service_Name is not defined ' + input.metadata.servicename);; 
 
         var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
         var name = _prefix + input.metadata.service_name;
