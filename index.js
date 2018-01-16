@@ -49,6 +49,12 @@ emitter.on("connect", async function() {
     }
 });
 
+function delay(ms) {
+    return new Promise((resolve, reject) => {
+        setTimeout(resolve, Number(ms) || 1);
+    })
+}
+
 emitter.on('start', async function(evt){
     try {
         var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
@@ -57,6 +63,8 @@ emitter.on('start', async function(evt){
         console.log(new Date() + ' - container start ' + name + ' (image : '+evt.Actor.Attributes.image+')');
 
         console.log('start: ' + JSON.stringify(evt));
+
+        await delay(5000);
 
         var container = await getContainerById(uuid);
 
