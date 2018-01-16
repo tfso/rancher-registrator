@@ -58,8 +58,9 @@ emitter.on('start', async function(evt){
 
         console.log('start: ' + JSON.stringify(evt));
 
-        getContainerById(uuid)
-            .then(tryRegisterContainer)
+        var container = await getContainerById(uuid);
+
+        tryRegisterContainer(container)
             .then(function (value) {
                 if(value) console.log(value);
             }).catch(function(err){
@@ -185,16 +186,14 @@ function tryRegisterContainer(input){
 
 async function getContainers() {
     let response = await request({
-        method:"GET",
-        url: "http://rancher-metadata/latest/containers/",
-        headers:{
-            "accept" : "application/json"
-        },
-        resolveWithFullResponse: true
-    }),
-    body = JSON.parse(response.body);
-
-    if(!hostUuid)
+            method:"GET",
+            url: "http://rancher-metadata/latest/containers/",
+            headers:{
+                "accept" : "application/json"
+            },
+            resolveWithFullResponse: true
+        }),
+        body = JSON.parse(response.body),
         hostUuid = await getHostUUID();
 
     if(Array.isArray(body)) {
@@ -211,12 +210,23 @@ async function getContainers() {
 }
 
 async function getContainerById(id) {
-    return await getContainers()
+    let containers = (await getContainers())
         .filter(container => container.id == id) 
+
+    if(containers.length == 1)
+        return containers[0];
+
+    return null;        
 }
+
 async function getContainerByName(servicename) {
-    return await getContainers()
+    let container = (await getContainers())
         .filter(container => new String(container.servicename).toLowerCase() == new String(servicename).toLowerCase())
+
+    if(containers.length == 1)
+        return containers[0];
+
+    return null;        
 }
 
 function getMetaData(servicename){
