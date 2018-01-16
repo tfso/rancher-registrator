@@ -34,7 +34,7 @@ emitter.on("connect", async function() {
 
         await deregisterServices(services.map(service => service.ID));
 
-        getHostContainers(hostUuid)
+        getContainers('running')
             .then(registerContainers)
             .then(function (value) {
                 console.log(value);
@@ -124,48 +124,8 @@ emitter.on('stop', async function(evt){
     }
 });
 
-function getHostContainers(hostUUID){
-    return new Promise(
-        function(resolve,reject){
-            //console.log("query for existing containers");
-
-            var query = {
-                "method":"GET",
-                "url": "http://rancher-metadata/latest/containers",
-                "headers":{
-                    "accept" : "application/json"
-                }
-            }
-
-            request(query,function (error, response, body) {
-                if (error) {
-                    reject("getHostContainers error : " + error);
-                }
-
-                var output = {};
-                output.containers = JSON.parse(body).filter(
-                    function(container) {
-                        return container.host_uuid == hostUUID;
-                    }
-                );
-                resolve(output);
-            })
-        }
-    )
-}
-
-function registerContainers(input) {
-    var promises = [];
-
-    for (let container of input.containers) {
-        var temp = {};
-        temp.metadata = container;
-        temp.servicename = container.name;
-
-        promises.push(tryRegisterContainer(temp));
-    }
-    
-    return Promise.all(promises)
+function registerContainers(input) {   
+    return Promise.all(input.map(container => tryRegisterContainer(container)))
         .then(value => {
             return [].concat.apply([], value);
         });
@@ -192,7 +152,7 @@ function tryRegisterContainer(input){
         })
 }
 
-async function getContainers() {
+async function getContainers(state) {
     let response = await request({
             method:"GET",
             url: "http://rancher-metadata/latest/containers/",
@@ -207,6 +167,7 @@ async function getContainers() {
     if(Array.isArray(body)) {
         return body
             .filter(container => container.host_uuid == hostUuid)
+            .filter(container => state == null || state == "" || container.state == state)
             .map(container => Object.assign({}, { 
                 id: container.labels['io.rancher.container.uuid'],
                 metadata: container, 
