@@ -1,0 +1,17 @@
+{
+    "compileOnSave": true,
+    "compilerOptions": {
+        "target": "es2017",
+        "module": "commonjs",
+        "noEmitOnError": true,
+        "noImplicitAny": false,
+        "experimentalDecorators": true,        
+        "suppressImplicitAnyIndexErrors": true,
+        "noEmitHelpers": true,
+        "importHelpers": true
+    },
+    "exclude": [
+        "build",
+        "node_modules"
+    ]
+}

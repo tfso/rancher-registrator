@@ -26,13 +26,13 @@ emitter.on("connect", async function() {
         console.log("connected to docker api");
         console.log("register existing containers");
 
-        let services = await getServices(),
+        let services = await Services.getAll(),
             hostUuid = await getHostUUID();
 
         console.log('host uuid: ' + hostUuid);
         console.log("services for node: " + services.length);
 
-        await deregisterServices(services.map(service => service.ID));
+        await Services.deregisterServices(services.map(service => service.ID));
 
         getContainers('running')
             .then(registerContainers)
@@ -49,12 +49,6 @@ emitter.on("connect", async function() {
     }
 });
 
-function delay(ms) {
-    return new Promise((resolve, reject) => {
-        setTimeout(resolve, Number(ms) || 1);
-    })
-}
-
 emitter.on('start', async function(evt){
     try {
         var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
@@ -64,16 +58,15 @@ emitter.on('start', async function(evt){
 
         console.log('start: ' + JSON.stringify(evt));
 
-        await delay(5000);
-
         var container = await getContainerById(uuid);
-
-        tryRegisterContainer(container)
-            .then(function (value) {
-                if(value) console.log(value);
-            }).catch(function(err){
-                console.error("Registering; " + err);
-            })
+        if(container) {
+            tryRegisterContainer(container)
+                .then(function (value) {
+                    if(value) console.log(value);
+                }).catch(function(err){
+                    console.error("Registering; " + err);
+                })
+        }
     }
     catch(err) {
         console.error('Registering; ' + err);
@@ -108,11 +101,11 @@ emitter.on('stop', async function(evt){
 
         console.log('stop: ' + JSON.stringify(evt));
 
-        let service = await getServiceByRancherId(uuid);
+        let service = await Services.getByRancherId(uuid);
         if( service == null)
             return console.error(`Deregistrering; service with rancher id ${uuid} does not exist`);
 
-        deregisterServices(service.ID)
+        Services.deregisterServices(service.ID)
             .then(function (value) {
                 console.log(value);
             }).catch(function(err){
@@ -144,7 +137,7 @@ function tryRegisterContainer(input){
         .then(checkForServiceNameLabel)
         .then(checkForServiceTagsLabel)
         .then(checkForHealthCheckLabel)
-        .then(registerService)
+        .then(Services.registerService)
         .catch(function(err){
             console.log(err);
 
@@ -152,7 +145,7 @@ function tryRegisterContainer(input){
         })
 }
 
-async function getContainers(state) {
+async function getContainers(state: string = null) {
     let response = await request({
             method:"GET",
             url: "http://rancher-metadata/latest/containers/",
@@ -168,11 +161,13 @@ async function getContainers(state) {
         return body
             .filter(container => container.host_uuid == hostUuid)
             .filter(container => state == null || state == "" || container.state == state)
-            .map(container => Object.assign({}, { 
-                id: container.labels['io.rancher.container.uuid'],
-                metadata: container, 
-                servicename: container.labels['io.rancher.container.name'] 
-            }));
+            .map(container => {
+                return {
+                    id: container.labels['io.rancher.container.uuid'],
+                    metadata: container, 
+                    servicename: (container.labels['io.rancher.container.name'] || container.name).toLowerCase()
+                };
+            });
     }
 
     return [];
@@ -189,7 +184,7 @@ async function getContainerById(id) {
 }
 
 async function getContainerByName(servicename) {
-    let container = (await getContainers())
+    let containers = (await getContainers())
         .filter(container => new String(container.servicename).toLowerCase() == new String(servicename).toLowerCase())
 
     if(containers.length == 1)
@@ -304,7 +299,7 @@ function checkForServiceTagsLabel(input){
                     .map(tag => (tag || "").trim())
                     .filter(tag => tag.length > 0);
             }
-            port_names = {};
+            var port_names: any = {};
             for (var key in input.metadata.labels) {
                 if (input.metadata.labels.hasOwnProperty(key)) {
 
@@ -402,178 +397,186 @@ function checkForHealthCheckLabel(input){
     )
 }
 
-async function registerService(input) {
-    console.log("registerService: " + input.servicename);
+class Services {
+    constructor() {
 
-    var serviceDefs = [],
-        hostUuid = await getHostUUID();
+    }
 
-    input.metadata.portMapping.forEach(function(pm) {
-        if(_ignoreUnnamedServices === true && (input.metadata.labels.SERVICE_NAME || input.metadata.port_service_names[pm.privatePort] || '').length == 0)
-            return console.log('Service ignored as Service_Name is not defined ' + input.metadata.servicename);; 
+    public static async registerService(input) {
+        console.log("registerService: " + input.servicename);
+    
+        var serviceDefs = [],
+            hostUuid = await getHostUUID();
+    
+        input.metadata.portMapping.forEach(function(pm) {
+            if(_ignoreUnnamedServices === true && (input.metadata.labels.SERVICE_NAME || input.metadata.port_service_names[pm.privatePort] || '').length == 0)
+                return console.log('Service ignored as Service_Name is not defined ' + input.metadata.servicename);; 
+    
+            var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
+            var name = _prefix + input.metadata.service_name;
+            var tags = [].concat(input.metadata.service_tags || [], _baseTags);
+    
+            var hasPortName = false;
+            if (input.metadata.port_service_names[pm.privatePort] != undefined) {
+                name = _prefix + input.metadata.port_service_names[pm.privatePort]
+                hasPortName = true;
+            }
+            if (pm.transport == "udp")
+                id += ":udp";
+    
+            if (input.metadata.portMapping.length > 1 && !hasPortName)
+                name += "-" + pm.privatePort;
+    
+            var definition = {
+                "ID": id, //<hostuuid>:<uuid>:<exposed-port>[:udp if udp]
+                "Name": name,
+                "Tags": [],
+                "Address": pm.address,
+                "Port": parseInt(pm.publicPort),
+                "Check": {}
+            };
+    
+            definition.Tags = Array.from(
+                new Set(tags).values() // unique list
+            );
+    
+            if(pm.Check){
+                definition.Check = pm.Check;
+            }
+    
+            serviceDefs.push(definition)
+    
+        })
 
-        var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
-        var name = _prefix + input.metadata.service_name;
-        var tags = [].concat(input.metadata.service_tags || [], _baseTags);
-
-        var hasPortName = false;
-        if (input.metadata.port_service_names[pm.privatePort] != undefined) {
-            name = _prefix + input.metadata.port_service_names[pm.privatePort]
-            hasPortName = true;
-        }
-        if (pm.transport == "udp")
-            id += ":udp";
-
-        if (input.metadata.portMapping.length > 1 && !hasPortName)
-            name += "-" + pm.privatePort;
-
-        var definition = {
-            "ID": id, //<hostuuid>:<uuid>:<exposed-port>[:udp if udp]
-            "Name": name,
-            "Address": pm.address,
-            "Port": parseInt(pm.publicPort)
-        };
-
-        definition.Tags = Array.from(
-            new Set(tags).values() // unique list
+        let results = await Promise.all(
+            serviceDefs.map(Services.doRegister)
         );
-
-        if(pm.Check){
-            definition.Check = pm.Check;
-        }
-
-        serviceDefs.push(definition)
-
-    })
-
-    let results = await Promise.all(
-        serviceDefs.map(doRegister)
-    );
-
-    return serviceDefs.map((serviceDef, index) => {
-        return `${serviceDef.ID} ${results[index] ? 'registered' : 'failed'}`;
-    });
-}
-
-async function deregisterService(input){    
-    var uniqueIDs = [],
-        hostUuid = await getHostUUID();
-
-    input.metadata.portMapping.forEach(function(pm){
-        var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
-
-        if(pm.transport == "udp")
-            id += ":udp";
-
-        uniqueIDs.push(id)
-    });
-
-    return deregisterServices(uniqueIDs);
-}
-
-async function deregisterServices(uniqueIDs){
-    uniqueIDs = []
-        .concat(uniqueIDs)
-        .filter(id => id && id.length > 32);
-
-    let results = await Promise.all(
-        uniqueIDs.map(doDeregister)
-    );
-
-    return uniqueIDs.map((id, index) => {
-        return `${id} ${results[index] ? 'deregistered' : 'failed'}`;
-    })
-}
-
-async function doRegister(serviceDef) {
-    try {
-        let response = await request({
-            method:"PUT",
-            url: _consulAgent + "/v1/agent/service/register",
-            headers:{
-                "Content-Type" : "application/json"
-            },
-            json:serviceDef,
-            resolveWithFullResponse: true
-        }),
-        body = JSON.parse(response.body || null);
-
-        return true;
+    
+        return serviceDefs.map((serviceDef, index) => {
+            return `${serviceDef.ID} ${results[index] ? 'registered' : 'failed'}`;
+        });
     }
-    catch(err) {
-        console.log("registerService error : " + err);
-
-        return false;
+    
+    public static async deregisterService(input){    
+        var uniqueIDs = [],
+            hostUuid = await getHostUUID();
+    
+        input.metadata.portMapping.forEach(function(pm){
+            var id = hostUuid + ":" + input.metadata.uuid + ":" + pm.publicPort;
+    
+            if(pm.transport == "udp")
+                id += ":udp";
+    
+            uniqueIDs.push(id)
+        });
+    
+        return Services.deregisterServices(uniqueIDs);
     }
-}
-
-async function doDeregister(uuid) {
-    try {
-        let response = await request({
-                method:"GET",
-                url: _consulAgent + "/v1/agent/service/deregister/" + uuid,
+    
+    public static async deregisterServices(uniqueIDs){
+        uniqueIDs = []
+            .concat(uniqueIDs)
+            .filter(id => id && id.length > 32);
+    
+        let results = await Promise.all(
+            uniqueIDs.map(Services.doDeregister)
+        );
+    
+        return uniqueIDs.map((id, index) => {
+            return `${id} ${results[index] ? 'deregistered' : 'failed'}`;
+        })
+    }
+    
+    public static async doRegister(serviceDef) {
+        try {
+            let response = await request({
+                method:"PUT",
+                url: _consulAgent + "/v1/agent/service/register",
+                headers:{
+                    "Content-Type" : "application/json"
+                },
+                json:serviceDef,
                 resolveWithFullResponse: true
             }),
             body = JSON.parse(response.body || null);
-
-        return true;
+    
+            return true;
+        }
+        catch(err) {
+            console.log("registerService error : " + err);
+    
+            return false;
+        }
     }
-    catch(err) {
-        console.log('deregisterService error : ' + err);
-
-        return false;
+    
+    public static async doDeregister(uuid) {
+        try {
+            let response = await request({
+                    method:"GET",
+                    url: _consulAgent + "/v1/agent/service/deregister/" + uuid,
+                    resolveWithFullResponse: true
+                }),
+                body = JSON.parse(response.body || null);
+    
+            return true;
+        }
+        catch(err) {
+            console.log('deregisterService error : ' + err);
+    
+            return false;
+        }
     }
-}
 
-async function getServices(hostUuid) {
-    let response = await request({
-            "method": "GET",
-            "url": _consulAgent + "/v1/agent/services",
-            resolveWithFullResponse: true
-        }),
-        body = JSON.parse(response.body);
-
-    var regex = new RegExp('^([a-zA-Z0-9][a-zA-Z0-9_.-]+):([a-zA-Z0-9][a-zA-Z0-9_.-]+):[0-9]+(?::udp)?$');      
-
-    if(!hostUuid)
-        hostUuid = await getHostUUID();
-
-    return Object.values(body)
-        .map(service => {
-            var match = regex.exec(service.ID),
-                meta = {
-                    hostUuid: null,
-                    id: null
+    public static async getAll(hostUuid?: string) {
+        let response = await request({
+                "method": "GET",
+                "url": _consulAgent + "/v1/agent/services",
+                resolveWithFullResponse: true
+            }),
+            body = JSON.parse(response.body);
+    
+        var regex = new RegExp('^([a-zA-Z0-9][a-zA-Z0-9_.-]+):([a-zA-Z0-9][a-zA-Z0-9_.-]+):[0-9]+(?::udp)?$');      
+    
+        if(!hostUuid)
+            hostUuid = await getHostUUID();
+    
+        return Object.values(body)
+            .map(service => {
+                var match = regex.exec(service.ID),
+                    meta = {
+                        hostUuid: null,
+                        id: null
+                    }
+                
+                if(match) {
+                    meta.hostUuid = match[1];
+                    meta.id = match[2];
                 }
-            
-            if(match) {
-                meta.hostUuid = match[1];
-                meta.id = match[2];
-            }
+    
+                return Object.assign(service, { meta });
+            })
+            .filter(service => {
+                return service.meta && service.meta.hostUuid == hostUuid;
+            });
+    }
 
-            return Object.assign(service, { meta });
-        })
-        .filter(service => {
-            return service.meta && service.meta.hostUuid == hostUuid;
-        });
-}
-
-async function getServiceByRancherId(uuid){
-    let services = (await getServices())
-        .filter(service => service.meta.id == uuid);
-
-    if(services.length == 1)
-        return services[0];
-
-    return null;
-}
-
-async function getServiceById(id){
-    let services = (await getServices())
-        .filter(service => service.ID == id);
-
-    if(services.length == 1)
-        return services[0];
-
-    return null;
+    public static async getByRancherId(uuid){
+        let services = (await Services.getAll())
+            .filter(service => service.meta.id == uuid);
+    
+        if(services.length == 1)
+            return services[0];
+    
+        return null;
+    }
+    
+    public static async getById(id){
+        let services = (await this.getAll())
+            .filter(service => service.ID == id);
+    
+        if(services.length == 1)
+            return services[0];
+    
+        return null;
+    }
 }
