@@ -58,6 +58,8 @@ emitter.on('start', async function(evt){
 
         console.log('start: ' + JSON.stringify(evt));
 
+        await delay(5000); // rancher-metadata isn't updated right away when docker emit start.
+
         var container = await getContainerById(uuid);
         if(container) {
             tryRegisterContainer(container)
@@ -395,6 +397,13 @@ function checkForHealthCheckLabel(input){
             resolve(input)
         }
     )
+}
+
+
+function delay(ms) {
+    return new Promise((resolve, reject) => {
+        setTimeout(resolve, Number(ms) || 1);
+    })
 }
 
 class Services {
