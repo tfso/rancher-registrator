@@ -52,11 +52,13 @@ emitter.on("connect", async function() {
 emitter.on('start', async function(evt){
     try {
         var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
+        var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
+
         console.log(new Date() + ' - container start ' + name + ' (image : '+evt.Actor.Attributes.image+')');
 
         console.log('start: ' + JSON.stringify(evt));
 
-        getMetaData(name)
+        getContainerById(uuid)
             .then(tryRegisterContainer)
             .then(function (value) {
                 if(value) console.log(value);
@@ -70,27 +72,7 @@ emitter.on('start', async function(evt){
 });
 
 emitter.on('destroy', async (evt) => {
-    try {
-        var name = evt.Actor.Attributes['io.rancher.container.name'] || evt.Actor.Attributes.name;
-        var uuid = evt.Actor.Attributes['io.rancher.container.uuid'];
-        console.log(new Date() + ' - container destroy ' + name + ' (image : '+evt.Actor.Attributes.image+')');
-
-        console.log('stop: ' + JSON.stringify(evt));
-
-        let service = await getServiceByRancherId(uuid);
-        if( service == null)
-            return console.error(`Deregistrering; service with rancher id ${uuid} does not exist`);
-
-        deregisterServices(service.ID)
-            .then(function (value) {
-                console.log(value);
-            }).catch(function(err){
-                console.error("Deregistrering; " + err);
-            })
-    }
-    catch(err) {
-        console.error('Deregistrering; ' + err);
-    }
+    console.log('destroy: ' + JSON.stringify(evt));
 });
 
 emitter.on('restart', async (evt) => {
@@ -201,29 +183,44 @@ function tryRegisterContainer(input){
         })
 }
 
+async function getContainers() {
+    let response = await request({
+        method:"GET",
+        url: "http://rancher-metadata/latest/containers/",
+        headers:{
+            "accept" : "application/json"
+        },
+        resolveWithFullResponse: true
+    }),
+    body = JSON.parse(response.body);
+
+    if(!hostUuid)
+        hostUuid = await getHostUUID();
+
+    if(Array.isArray(body)) {
+        return body
+            .filter(container => container.host_uuid == hostUuid)
+            .map(container => Object.assign({}, { 
+                id: container.labels['io.rancher.container.uuid'],
+                metadata: container, 
+                servicename: container.labels['io.rancher.container.name'] 
+            }));
+    }
+
+    return [];
+}
+
+async function getContainerById(id) {
+    return await getContainers()
+        .filter(container => container.id == id) 
+}
+async function getContainerByName(servicename) {
+    return await getContainers()
+        .filter(container => new String(container.servicename).toLowerCase() == new String(servicename).toLowerCase())
+}
+
 function getMetaData(servicename){
-    return new Promise(
-        function(resolve,reject){
-            var query = {
-                "method":"GET",
-                "url": "http://rancher-metadata/latest/containers/" + servicename,
-                "headers":{
-                    "accept" : "application/json"
-                }
-            }
-
-            request(query,function (error, response, body) {
-                if (error) {
-                    reject("getMetaData error : " + error);
-                }
-
-                var output = {};
-                output.metadata = JSON.parse(body);
-                output.servicename = servicename;
-                resolve(output);
-            })
-        }
-    )
+    return getContainerByName(servicename);
 }
 
 async function getHostUUID() {
