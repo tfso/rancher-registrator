@@ -1,12 +1,15 @@
 FROM microsoft/nanoserver
 
-RUN @powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))" && SET "PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin"
-RUN choco upgrade chocolatey
-RUN choco install -y nodejs --version 8.9.1
+ADD https://nodejs.org/dist/v8.9.1/node-v8.9.1-win-x64.zip C:\\build\\node-v8.9.1-win-x64.zip
+
+RUN @powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; Expand-Archive C:\build\node-v8.9.1-win-x64.zip C:\; Rename-Item C:\node-v8.9.1-win-x64 node"
+RUN SETX PATH C:\node
 
 WORKDIR /agent
 
-COPY . .
+COPY ./ .
+
+RUN dir
 
 RUN npm install --production
 
