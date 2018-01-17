@@ -6,7 +6,7 @@ const
     jsonQuery = require('json-query');
 
 var emitter = new DockerEvents({
-        docker: new Dockerode({socketPath: 'npipe:////./pipe/docker_engine'}),
+        docker: new Dockerode({ port: 2375 }),
     });
 
 const _prefix = process.env.SVC_PREFIX || "";

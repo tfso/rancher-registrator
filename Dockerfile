@@ -9,8 +9,6 @@ WORKDIR /agent
 
 COPY ./ .
 
-RUN dir
-
 RUN npm install --production
 
-CMD ["node", "index.js"]
+ENTRYPOINT npm start
