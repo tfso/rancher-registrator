@@ -26,10 +26,11 @@ It also needs to be mapped on the docker.sock file of the host :
 
 **Optional environment vars**
 
-You can set 2 environment variables :
+You can set following environment variables :
 
  - SVC_PREFIX is used to prefix the service name into consul (for testing purpose)
- - LOCAL_CONSUL_AGENT defaults to "http://localhost:8500" and it can be changed if necessary.
+ - CONSUL_ADDR defaults to "http://localhost:8500" and it can be changed if necessary.
+ - CONSUL_TOKEN default to undefined
  - SERVICE_TAGS base tags to add for all services
  - SERVICE_IGNORE_NAMELESS ignore all containers that isn't labeled with a SERVICE_NAME
 
