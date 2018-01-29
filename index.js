@@ -10,7 +10,8 @@ var emitter = new DockerEvents({
     });
 
 const _prefix = process.env.SVC_PREFIX || "";
-const _consulAgent = process.env.LOCAL_CONSUL_AGENT || "http://localhost:8500";
+const _consulAgent = process.env.CONSUL_ADDR || "http://localhost:8500";
+const _consulToken = process.env.CONSUL_TOKEN || null;
 const _baseTags = (process.env.SERVICE_TAGS || '')
     .split(',')
     .map(tag => (tag || '').trim())
@@ -490,8 +491,9 @@ async function doRegister(serviceDef) {
         let response = await request({
             method:"PUT",
             url: _consulAgent + "/v1/agent/service/register",
-            headers:{
-                "Content-Type" : "application/json"
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Consul-Token': _consulToken || undefined
             },
             json:serviceDef,
             resolveWithFullResponse: true
@@ -512,6 +514,10 @@ async function doDeregister(uuid) {
         let response = await request({
                 method:"GET",
                 url: _consulAgent + "/v1/agent/service/deregister/" + uuid,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Consul-Token': _consulToken || undefined
+                },
                 resolveWithFullResponse: true
             }),
             body = JSON.parse(response.body || null);
@@ -527,8 +533,12 @@ async function doDeregister(uuid) {
 
 async function getServices(hostUuid) {
     let response = await request({
-            "method": "GET",
-            "url": _consulAgent + "/v1/agent/services",
+            method: "GET",
+            url: _consulAgent + "/v1/agent/services",
+            headers: {
+                'Accept': 'application/json',
+                'X-Consul-Token': _consulToken || undefined
+            },
             resolveWithFullResponse: true
         }),
         body = JSON.parse(response.body);
