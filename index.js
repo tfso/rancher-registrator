@@ -473,10 +473,6 @@ async function deregisterService(input){
 }
 
 async function deregisterServices(uniqueIDs){
-    uniqueIDs = []
-        .concat(uniqueIDs)
-        .filter(id => id && id.length > 32);
-
     let results = await Promise.all(
         uniqueIDs.map(doDeregister)
     );
