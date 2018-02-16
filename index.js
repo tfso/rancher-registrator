@@ -508,10 +508,10 @@ async function doRegister(serviceDef) {
 async function doDeregister(uuid) {
     try {
         let response = await request({
-                method:"GET",
+                method:"PUT",
                 url: _consulAgent + "/v1/agent/service/deregister/" + uuid,
                 headers: {
-                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
                     'X-Consul-Token': _consulToken || undefined
                 },
                 resolveWithFullResponse: true
