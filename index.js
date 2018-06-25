@@ -17,6 +17,7 @@ const _baseTags = (process.env.SERVICE_TAGS || '')
     .map(tag => (tag || '').trim())
     .filter(tag => tag.length > 0);
 const _ignoreUnnamedServices = Boolean(process.env.SERVICE_IGNORE_NAMELESS)
+const  _interval = process.env.REFRESH_INTERVAL || -1;
 
 var _hostUuid = null;
 
@@ -111,7 +112,7 @@ emitter.on('stop', async function(evt){
 
         let service = await getServiceByRancherId(uuid);
         if( service == null)
-            return console.error(`Deregistrering; service with rancher id ${uuid} does not exist`);
+            return console.error(`Deregistering; service with rancher id ${uuid} does not exist`);
 
         deregisterServices(service.ID)
             .then(function (value) {
@@ -124,6 +125,39 @@ emitter.on('stop', async function(evt){
         console.error('Deregistrering; ' + err);
     }
 });
+
+
+if (_interval > 0) {
+    const intervalTimer = setInterval(async function() {
+
+        // register running containers
+        let containers = await getContainers('running');
+
+        registerContainers(containers)
+            .then(function (value) {
+                console.log(value);
+            }).catch(function(err){
+                console.error("interval: " + err);
+            });
+
+
+        // get existing services from consul
+        let services = await getServices();
+
+        services.forEach((service) => {
+            let found = containers.some((container) => {
+                return container.id == service.meta.id;
+            });
+    
+            // service wasn't found...deregister it
+            if (!found) {
+                deregisterServices([service.ID]);
+            }
+        })
+
+    }, _interval * 1000);
+};
+
 
 function registerContainers(input) {   
     return Promise.all(input.map(container => tryRegisterContainer(container)))
